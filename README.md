@@ -19,11 +19,17 @@ A powerful Python framework for building and managing workflow pipelines with AI
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/kwargify-core.git
+git clone https://github.com/kwargify/kwargify-core.git
 cd kwargify-core
 
 # Install using Poetry
 poetry install
+```
+
+```bash
+pip install kwargify-core
+poetry add kwargify-core
+uv add kwargify-core
 ```
 
 ## Core Concepts
