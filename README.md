@@ -37,6 +37,7 @@ uv add kwargify-core
 ### Workflows
 
 A workflow in Kwargify Core is a directed acyclic graph (DAG) of connected blocks. Each workflow:
+
 - Manages the execution order based on block dependencies
 - Provides retry capabilities for error handling
 - Supports resuming from previous runs
@@ -77,6 +78,7 @@ workflow.run()
 ### Blocks
 
 Blocks are the fundamental units of work in a workflow. Each block:
+
 - Encapsulates specific functionality
 - Can have configurable parameters
 - Has defined inputs and outputs
@@ -118,11 +120,33 @@ kwargify show path/to/workflow.py
 kwargify show path/to/workflow.py --diagram  # Show as Mermaid diagram
 ```
 
+### `kwargify init` Command
+
+The `kwargify init` command is used to initialize a new Kwargify project. It sets up the basic project structure and creates a `config.toml` file to store project-specific settings.
+
+When you run `kwargify init`, you will be prompted to enter:
+
+- The project name.
+- The database file name (e.g., `kwargify_runs.db`).
+
+The `config.toml` file stores configuration details such as the project name and the path to the SQLite database used for logging workflow runs.
+
+Example `config.toml` structure:
+
+```toml
+[project]
+name = "YourProjectName"
+
+[database]
+name = "your_database_file.db"
+```
+
 ### Example: Contract Analysis Workflow
 
 The `examples/contract_report_workflow_cli.py` demonstrates a workflow that analyzes contracts using AI and generates reports.
 
 1. Set up environment variables:
+
 ```bash
 # Create .env file from example
 cp .env.example .env
@@ -136,6 +160,7 @@ export CONTRACT_OUTPUT_PATH=/path/to/report.txt
 ```
 
 2. Run the workflow:
+
 ```bash
 # Using default paths (contract.txt and report.txt)
 kwargify run examples/contract_report_workflow_cli.py
@@ -151,14 +176,17 @@ For complete workflow creation guidelines and best practices, see our [CLI Usage
 Basic workflow structure:
 
 ### File Structure
+
 Workflows are defined in Python files with a specific structure:
 
 1. Required Components:
+
    - A `get_workflow()` function that returns a `Workflow` instance
    - Clear naming for the workflow using `workflow.name`
    - Properly configured blocks with dependencies
 
 2. Example Structure:
+
 ```python
 from kwargify_core.core.workflow import Workflow
 from kwargify_core.core.block import Block
@@ -168,40 +196,43 @@ def get_workflow() -> Workflow:
     # Create workflow
     workflow = Workflow()
     workflow.name = "ContractAnalysis"
-    
+
     # Create blocks
     reader = ReadFileBlock(
         name="contract_reader",
         config={"path": os.getenv("CONTRACT_INPUT_PATH", "contract.txt")}
     )
-    
+
     analyzer = AIProcessorBlock(
         name="contract_analyzer",
         config={"model": "gpt-4o-mini"}
     )
     analyzer.add_dependency(reader)
-    
+
     writer = WriteFileBlock(
         name="report_writer",
         config={"path": os.getenv("OUTPUT_PATH", "report.txt")}
     )
     writer.add_dependency(analyzer)
-    
+
     # Add blocks to workflow
     workflow.add_block(reader)
     workflow.add_block(analyzer)
     workflow.add_block(writer)
-    
+
     return workflow
 ```
 
 ### Best Practices
+
 1. Configuration:
+
    - Use environment variables for configurable paths and settings
    - Provide sensible defaults for optional configurations
    - Keep sensitive data (API keys, credentials) in environment variables
 
 2. Naming and Structure:
+
    - Use descriptive names for workflows and blocks
    - Organize blocks logically with clear dependencies
    - Comment complex configurations or dependencies
@@ -212,9 +243,11 @@ def get_workflow() -> Workflow:
    - Provide meaningful error messages
 
 ### Workflow Registry
+
 The registry allows you to catalog and version your workflows:
 
 1. Registering a Workflow:
+
 ```bash
 # Register a workflow
 kwargify register path/to/workflow.py
@@ -236,6 +269,7 @@ kwargify run --name my-workflow
 Kwargify Core automatically logs workflow execution details to an SQLite database (default: `kwargify_runs.db`). This logging system:
 
 ### What is Logged
+
 - Workflow runs (start time, end time, status)
 - Block executions (inputs, outputs, status)
 - Error messages and stack traces
@@ -243,6 +277,7 @@ Kwargify Core automatically logs workflow execution details to an SQLite databas
 - Resume information
 
 ### Database Structure
+
 - `run_summary`: Overall workflow run information
 - `run_details`: Individual block execution details
 - `run_logs`: Detailed log messages
@@ -250,6 +285,7 @@ Kwargify Core automatically logs workflow execution details to an SQLite databas
 - `workflow_versions`: Version history of registered workflows
 
 ### Log Data Usage
+
 - Debugging workflow execution
 - Monitoring block performance
 - Supporting the resume functionality
@@ -258,6 +294,7 @@ Kwargify Core automatically logs workflow execution details to an SQLite databas
 ## Resume and Retry
 
 ### Retry Mechanism
+
 Blocks can automatically retry on failure:
 
 ```python
@@ -270,12 +307,14 @@ block.max_retries = 5  # Overrides workflow default
 ```
 
 When a block fails:
+
 1. The error is logged
 2. The block waits 1 second
 3. Execution is retried up to the specified limit
 4. If all retries fail, the workflow fails
 
 ### Resume Capability
+
 Failed or interrupted workflows can be resumed:
 
 ```bash
@@ -284,12 +323,14 @@ kwargify run workflow.py --resume-from <run_id> --resume-after <block_name>
 ```
 
 When resuming:
+
 1. The system validates the previous run's state
 2. Successfully completed blocks are skipped
 3. Their outputs are loaded from the log
 4. Execution continues from the specified point
 
 Example workflow with resume:
+
 ```python
 # Create workflow that can be resumed
 workflow = Workflow()
@@ -308,6 +349,7 @@ workflow.run(
 ```
 
 This will:
+
 - Skip block1 if it completed successfully in the previous run
 - Use block1's logged outputs
 - Continue execution from block2
@@ -325,7 +367,9 @@ See our comprehensive documentation for detailed information:
 ## Available Built-in Blocks
 
 ### ReadFileBlock
+
 Reads content from a file.
+
 ```python
 reader = ReadFileBlock(
     name="MyReader",
@@ -337,7 +381,9 @@ reader = ReadFileBlock(
 ```
 
 ### WriteFileBlock
+
 Writes content to a file.
+
 ```python
 writer = WriteFileBlock(
     name="MyWriter",
@@ -349,7 +395,9 @@ writer = WriteFileBlock(
 ```
 
 ### AIProcessorBlock
+
 Processes text using an AI model.
+
 ```python
 processor = AIProcessorBlock(
     name="MyAIProcessor",
@@ -366,7 +414,9 @@ processor = AIProcessorBlock(
 ```
 
 ### AIExtractorBlock
+
 Extracts structured data using an AI model.
+
 ```python
 extractor = AIExtractorBlock(
     name="MyExtractor",
@@ -399,7 +449,9 @@ extractor.inputs["extraction_fields"] = {
 ```
 
 ### DocumentTemplateBlock
+
 Generates documents using templates.
+
 ```python
 template = DocumentTemplateBlock(name="MyTemplate")
 template.inputs["template"] = """
@@ -421,7 +473,9 @@ Topics:
 ```
 
 ### JsonToStringBlock
+
 Converts JSON data to formatted strings.
+
 ```python
 formatter = JsonToStringBlock(name="MyFormatter")
 # Inputs: {
@@ -441,6 +495,7 @@ If you encounter any issues:
 4. Report bugs on our issue tracker
 
 Common issues:
+
 - Workflow file not found: Check the file path and extension
 - Invalid workflow structure: Verify get_workflow() function exists
 - Registry errors: Check permissions and workflow names

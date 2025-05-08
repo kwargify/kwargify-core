@@ -3,6 +3,7 @@ import time
 from typing import List, Set, Optional, Dict
 from kwargify_core.core.block import Block
 from kwargify_core.logging import SQLiteLogger
+from ..config import get_database_name
 
 class Workflow:
     """
@@ -26,7 +27,7 @@ class Workflow:
         """
         self.blocks: List[Block] = []
         self.name = "DefaultWorkflow"
-        self.logger = SQLiteLogger(db_path="kwargify_runs.db")
+        self.logger = SQLiteLogger(db_path=get_database_name())
         self.default_max_retries = default_max_retries
         self.run_id = uuid.uuid4().hex
 

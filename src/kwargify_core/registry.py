@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Any
 from kwargify_core.core.workflow import Workflow
 from kwargify_core.loader import load_workflow_from_py
 from kwargify_core.logging.sqlite_logger import SQLiteLogger
+from .config import get_database_name
 
 
 class WorkflowRegistryError(Exception):
@@ -18,13 +19,14 @@ class WorkflowRegistryError(Exception):
 class WorkflowRegistry:
     """Manages the registration and versioning of workflows."""
 
-    def __init__(self, db_path: str = "kwargify_runs.db"):
+    def __init__(self, db_path: Optional[str] = None):
         """Initialize the registry using SQLiteLogger.
 
         Args:
             db_path (str): Path to the SQLite database file
         """
-        self.logger = SQLiteLogger(db_path)
+        final_db_path = db_path if db_path is not None else get_database_name()
+        self.logger = SQLiteLogger(final_db_path)
 
     def _calculate_file_hash(self, file_path: str) -> str:
         """Calculate SHA-256 hash of a file's contents.
