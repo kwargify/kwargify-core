@@ -6,6 +6,8 @@ import tempfile
 import os
 import json
 from pathlib import Path
+import toml
+from unittest.mock import patch
 
 from kwargify_core.registry import WorkflowRegistry, WorkflowRegistryError
 
@@ -164,3 +166,55 @@ def test_register_invalid_workflow(registry, tmp_path):
     with pytest.raises(WorkflowRegistryError) as exc:
         registry.register(str(invalid_file))
     assert "Failed to register workflow" in str(exc.value)
+
+
+@pytest.fixture
+def create_config_file(tmp_path):
+    """Fixture to create a temporary config.toml file."""
+    def _creator(config_data):
+        config_path = tmp_path / "config.toml"
+        with open(config_path, "w") as f:
+            toml.dump(config_data, f)
+        # Return the path and a cleanup function
+        return config_path, lambda: os.remove(config_path)
+    return _creator
+
+
+@patch("kwargify_core.registry.get_database_name")
+def test_registry_uses_configured_db(mock_get_database_name, tmp_path, create_config_file):
+    """Test that WorkflowRegistry uses the configured database name if db_path is None."""
+    custom_db_name = "configured_test_registry.db"
+    mock_get_database_name.return_value = custom_db_name
+
+    # Create a temporary config file (though get_database_name is mocked,
+    # this simulates the environment where a config would exist)
+    config_data = {"database": {"name": custom_db_name}}
+    config_path, cleanup = create_config_file(config_data)
+
+    # Change the current working directory to the temporary directory
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        # Instantiate WorkflowRegistry without db_path
+        registry = WorkflowRegistry()
+
+        # Assert that the logger was initialized with the configured DB name
+        # We need to access the logger's db_path attribute, which is private.
+        # A better approach would be to patch SQLiteLogger.__init__ as done in test_cli.py
+        # Let's refactor this test to patch SQLiteLogger.__init__ instead.
+        # assert registry.logger.db_path == custom_db_name # This won't work directly
+
+        # Refactored test using patch on SQLiteLogger
+        with patch("kwargify_core.registry.SQLiteLogger") as mock_sqlite_logger_class:
+             # Instantiate WorkflowRegistry without db_path
+             registry = WorkflowRegistry()
+
+             # Assert that SQLiteLogger was instantiated with the configured DB name
+             mock_sqlite_logger_class.assert_called_once_with(custom_db_name)
+
+
+    finally:
+        # Restore the original working directory and clean up the config file
+        os.chdir(original_cwd)
+        cleanup()

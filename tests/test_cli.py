@@ -10,6 +10,8 @@ from kwargify_core.core.workflow import Workflow
 from kwargify_core.core.block import Block
 from kwargify_core.registry import WorkflowRegistry, WorkflowRegistryError
 from datetime import datetime
+import toml
+import os
 
 
 @pytest.fixture
@@ -116,29 +118,88 @@ def get_workflow():
     return file_path
 
 
-def test_run_with_resume_options(runner, valid_workflow_file):
+@patch("kwargify_core.cli.SQLiteLogger")
+def test_run_with_resume_options(mock_logger_class, runner, valid_workflow_file):
     """Test running a workflow with resume options."""
-    result = runner.invoke(app, [
-        "run",
-        str(valid_workflow_file),
-        "--resume-id", "123",
-        "--resume-after", "block1"
-    ])
+    mock_logger_instance = mock_logger_class.return_value
+    mock_logger_instance.get_run_details.return_value = {
+        "run_id": "123",
+        "workflow_name": "test_workflow",
+        "start_time": "2025-01-01 10:00:00",
+        "end_time": "2025-01-01 10:05:00",
+        "status": "COMPLETED",
+        "blocks": [{"block_name": "test_block", "status": "COMPLETED", "start_time": "2025-01-01 10:00:00", "end_time": "2025-01-01 10:01:00", "inputs": {}, "outputs": {}, "error_message": None, "retries_attempted": 0}]
+    }
+
+    with patch("kwargify_core.cli.load_workflow_from_py") as mock_load_workflow:
+        mock_workflow = MagicMock()
+        mock_workflow.name = "test_workflow"
+        mock_load_workflow.return_value = mock_workflow
+        mock_workflow.run.return_value = None # Mock the run method
+
+        result = runner.invoke(app, [
+            "run",
+            str(valid_workflow_file),
+            "--resume-id", "123",
+            "--resume-after", "test_block"
+        ])
+
+        mock_load_workflow.assert_called_once_with(str(valid_workflow_file))
+        mock_workflow.run.assert_called_once_with(
+            workflow_version_id=None,
+            resume_from_run_id="123",
+            resume_after_block_name="test_block"
+        )
+
     assert result.exit_code == 0
+    assert "Loading workflow from:" in result.stdout
     assert "Starting workflow: test_workflow" in result.stdout
-    assert "Attempting to resume from block: block1" in result.stdout
-    assert "Run ID: 123" in result.stdout
+    assert "Attempting to resume from block: test_block" in result.stdout
+    assert "Resumed Run ID: 123" in result.stdout
 
 
-def test_run_resume_id_without_after(runner, valid_workflow_file):
-    """Test that providing resume-id without resume-after fails."""
+@patch("kwargify_core.cli.SQLiteLogger")
+@patch("kwargify_core.cli.load_workflow_from_py")
+def test_run_resume_id_without_after(mock_load_workflow, mock_logger_class, runner, valid_workflow_file):
+    """Test that providing resume-id without resume-after automatically resumes after the last successful block."""
+    mock_logger_instance = mock_logger_class.return_value
+    mock_logger_instance.get_run_details.return_value = {
+        "run_id": "123",
+        "workflow_name": "test_workflow",
+        "start_time": "2025-01-01 10:00:00",
+        "end_time": "2025-01-01 10:05:00",
+        "status": "FAILED", # Simulate a failed run that can be resumed
+        "blocks": [
+            {"block_name": "block1", "status": "COMPLETED", "start_time": "2025-01-01 10:00:00", "end_time": "2025-01-01 10:01:00", "inputs": {}, "outputs": {}, "error_message": None, "retries_attempted": 0},
+            {"block_name": "block2", "status": "FAILED", "start_time": "2025-01-01 10:02:00", "end_time": "2025-01-01 10:03:00", "inputs": {}, "outputs": {}, "error_message": "Error", "retries_attempted": 0}
+        ]
+    }
+
+    mock_workflow = MagicMock()
+    mock_workflow.name = "test_workflow"
+    mock_load_workflow.return_value = mock_workflow
+    mock_workflow.run.return_value = None # Mock the run method
+
     result = runner.invoke(app, [
         "run",
         str(valid_workflow_file),
         "--resume-id", "123"
     ])
-    assert result.exit_code == 1
-    assert "--resume-id requires --resume-after" in result.stdout
+
+    mock_logger_instance.get_run_details.assert_called_once_with("123")
+    mock_load_workflow.assert_called_once_with(str(valid_workflow_file))
+    mock_workflow.run.assert_called_once_with(
+        workflow_version_id=None,
+        resume_from_run_id="123",
+        resume_after_block_name="block1" # Should resume after the last completed block
+    )
+
+    assert result.exit_code == 0
+    assert "Loading workflow from:" in result.stdout
+    assert "Starting workflow: test_workflow" in result.stdout
+    assert "Auto-resuming after last successful block: block1" in result.stdout
+    assert "Resumed Run ID: 123" in result.stdout
+    assert "Workflow completed successfully" in result.stdout # Assuming the mocked run completes successfully
 
 
 def test_run_resume_after_without_id(runner, valid_workflow_file):
@@ -561,7 +622,7 @@ def test_history_specific_run(mock_logger_class, runner, mock_sqlite_logger):
     
     result = runner.invoke(app, ["history", "run1"])
     assert result.exit_code == 0
-    assert "Workflow Run Details" in result.stdout
+    assert "Execution Details:" in result.stdout
     assert "test_workflow" in result.stdout
     assert "block1" in result.stdout
     assert "COMPLETED" in result.stdout
@@ -589,3 +650,166 @@ def test_history_empty_database(mock_logger_class, runner, mock_sqlite_logger):
     result = runner.invoke(app, ["history"])
     assert result.exit_code == 0
     assert "No workflow runs found" in result.stdout
+
+
+@patch("kwargify_core.cli.load_config")
+@patch("kwargify_core.cli.save_config")
+def test_init_command_creates_config(mock_save_config, mock_load_config, runner):
+    """Test that the init command creates a new configuration."""
+    mock_load_config.return_value = {}  # Simulate no existing config
+    
+    result = runner.invoke(app, ["init"], input="my_project\nmy_data.db\n")
+    
+    assert result.exit_code == 0
+    assert "Project 'my_project' initialized. Configuration saved to config.toml." in result.stdout
+    
+    mock_load_config.assert_called_once()
+    mock_save_config.assert_called_once_with({
+        "project": {"name": "my_project"},
+        "database": {"name": "my_data.db"}
+    })
+
+
+@patch("kwargify_core.cli.load_config")
+@patch("kwargify_core.cli.save_config")
+def test_init_command_updates_existing_config(mock_save_config, mock_load_config, runner):
+    """Test that the init command updates an existing configuration."""
+    existing_config = {
+        "other_setting": "value",
+        "project": {"name": "old_project"},
+        "database": {"name": "old_db.db"}
+    }
+    mock_load_config.return_value = existing_config  # Simulate existing config
+    
+    result = runner.invoke(app, ["init"], input="new_project\nnew_data.db\n")
+    
+    assert result.exit_code == 0
+    assert "Project 'new_project' initialized. Configuration saved to config.toml." in result.stdout
+    
+    mock_load_config.assert_called_once()
+    mock_save_config.assert_called_once_with({
+        "other_setting": "value",
+        "project": {"name": "new_project"},
+        "database": {"name": "new_data.db"}
+    })
+
+
+@patch("kwargify_core.cli.load_config")
+@patch("kwargify_core.cli.save_config")
+def test_init_command_prompts_correctly(mock_save_config, mock_load_config, runner):
+    """Test that the init command prompts the user for input."""
+    mock_load_config.return_value = {}
+    
+    # Use a side_effect to capture prompts - Typer's CliRunner handles prompts
+    # by consuming input from the 'input' argument. We just need to ensure
+    # the command runs successfully with valid input.
+    result = runner.invoke(app, ["init"], input="prompt_test_project\nprompt_test.db\n")
+    
+    assert result.exit_code == 0
+    assert "Project 'prompt_test_project' initialized." in result.stdout
+    mock_save_config.assert_called_once() # Ensure save was attempted
+
+
+@patch("kwargify_core.cli.load_config")
+@patch("kwargify_core.cli.save_config")
+def test_init_command_handles_no_input_for_prompts(mock_save_config, mock_load_config, runner):
+    """Test that the init command handles no input for mandatory prompts."""
+    mock_load_config.return_value = {}
+    
+    # Simulate pressing Enter for the first prompt (project_name)
+    result = runner.invoke(app, ["init"], input=" \n") # Provide input for both prompts
+    
+    # Typer should exit with a non-zero code because the option is mandatory
+    assert result.exit_code != 0
+    # Check for error message related to missing required option
+    assert "Missing required argument" in result.stdout or "Aborted" in result.stdout # Typer might abort on empty mandatory prompt
+
+
+@pytest.fixture
+def create_config_file(tmp_path):
+    """Fixture to create a temporary config.toml file."""
+    def _creator(config_data):
+        config_path = tmp_path / "config.toml"
+        with open(config_path, "w") as f:
+            toml.dump(config_data, f)
+        # Return the path and a cleanup function
+        return config_path, lambda: os.remove(config_path)
+    return _creator
+
+
+@patch("kwargify_core.cli.SQLiteLogger")
+def test_logger_uses_configured_db(mock_logger_class, runner, valid_workflow_file, create_config_file, tmp_path):
+    """Test that SQLiteLogger in CLI uses the configured database name."""
+    # Create a temporary config file with a custom DB name
+    config_data = {"database": {"name": "custom_test.db"}}
+    config_path, cleanup = create_config_file(config_data)
+
+    # Change the current working directory to the temporary directory
+    # so that load_config finds the temporary config.toml
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        # Run a command that instantiates SQLiteLogger (e.g., 'run')
+        # We need to mock the actual workflow run to avoid needing a real DB
+        with patch("kwargify_core.cli.load_workflow_from_py") as mock_load_workflow:
+             mock_workflow = MagicMock()
+             mock_workflow.name = "test_workflow"
+             mock_load_workflow.return_value = mock_workflow
+
+             # Mock the run method to prevent actual execution
+             mock_workflow.run.return_value = None
+
+             # Mock get_run_details to satisfy the resume logic in cli.py
+             mock_logger_instance = mock_logger_class.return_value
+             mock_logger_instance.get_run_details.return_value = {
+                 "run_id": "dummy_run_id",
+                 "workflow_name": "test_workflow",
+                 "start_time": "2025-01-01 10:00:00",
+                 "end_time": "2025-01-01 10:05:00",
+                 "status": "COMPLETED",
+                 "blocks": [{"block_name": "block1", "status": "COMPLETED", "start_time": "2025-01-01 10:00:00", "end_time": "2025-01-01 10:01:00", "inputs": {}, "outputs": {}, "error_message": None, "retries_attempted": 0}]
+             }
+
+             result = runner.invoke(app, ["run", str(valid_workflow_file), "--resume-id", "dummy_run_id"])
+
+             # Assert that SQLiteLogger was instantiated with the custom DB name
+             mock_logger_class.assert_called_once_with("custom_test.db")
+
+    finally:
+        # Restore the original working directory and clean up the config file
+        os.chdir(original_cwd)
+        cleanup()
+
+
+@patch("kwargify_core.cli.SQLiteLogger")
+def test_commands_with_default_db_if_no_config(mock_logger_class, runner, valid_workflow_file, tmp_path):
+    """Test that CLI commands use the default DB name if no config is present."""
+    # Ensure no config.toml exists in the temporary directory
+    config_path = tmp_path / "config.toml"
+    if config_path.exists():
+        os.remove(config_path)
+
+    # Change the current working directory to the temporary directory
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        # Run a command that instantiates SQLiteLogger (e.g., 'run')
+        # We need to mock the actual workflow run to avoid needing a real DB
+        with patch("kwargify_core.cli.load_workflow_from_py") as mock_load_workflow:
+             mock_workflow = MagicMock()
+             mock_workflow.name = "test_workflow"
+             mock_load_workflow.return_value = mock_workflow
+
+             # Mock the run method to prevent actual execution
+             mock_workflow.run.return_value = None
+
+             result = runner.invoke(app, ["run", str(valid_workflow_file)])
+
+             # Assert that SQLiteLogger was instantiated with the default DB name
+             mock_logger_class.assert_called_once_with("kwargify_runs.db")
+
+    finally:
+        # Restore the original working directory
+        os.chdir(original_cwd)
