@@ -64,6 +64,44 @@ def main(
     """
     pass
 
+@app.command("init")
+def init_project(
+    project_name_opt: Optional[str] = typer.Option(None, "--project-name", help="Your project's name (will prompt if not provided)"),
+    db_name_opt: Optional[str] = typer.Option(None, "--db-name", help="Database file name (e.g., my_data.db, will prompt if not provided)")
+) -> None:
+    """
+    Initializes a new Kwargify project.
+    """
+    project_name = project_name_opt
+    if project_name is None:
+        project_name = typer.prompt("Project name", default="")
+        if not project_name or not project_name.strip():
+            typer.echo("Error: Project name cannot be empty or whitespace.", err=True)
+            raise typer.Abort()
+
+    db_name = db_name_opt
+    if db_name is None:
+        db_name = typer.prompt("Database file name (e.g., my_data.db)", default="")
+        if not db_name or not db_name.strip():
+            typer.echo("Error: Database file name cannot be empty or whitespace.", err=True)
+            raise typer.Abort()
+
+    try:
+        config = load_config()
+        
+        if "project" not in config:
+            config["project"] = {}
+        if "database" not in config:
+            config["database"] = {}
+
+        config["project"]["name"] = project_name
+        config["database"]["name"] = db_name
+
+        save_config(config)
+        typer.echo(f"Project '{project_name}' initialized. Configuration saved to config.toml.")
+    except Exception as e:
+        typer.echo(f"Error initializing project: {e}", err=True)
+        raise typer.Exit(code=1)
 
 @app.command("run")
 def run_workflow(
@@ -510,46 +548,7 @@ def show_history(
     except Exception as e:
         typer.echo(f"Error accessing workflow history: {e}", err=True)
         raise typer.Exit(code=1)
-@app.command("init")
-def init_project(
-    project_name_opt: Optional[str] = typer.Option(None, "--project-name", help="Your project's name (will prompt if not provided)"),
-    db_name_opt: Optional[str] = typer.Option(None, "--db-name", help="Database file name (e.g., my_data.db, will prompt if not provided)")
-) -> None:
-    """
-    Initializes a new Kwargify project by creating or updating the configuration file.
-    Prompts for project name and database name if not provided as options.
-    Aborts if empty input is given at a prompt.
-    """
-    project_name = project_name_opt
-    if project_name is None:
-        project_name = typer.prompt("Project name", default="")
-        if not project_name or not project_name.strip():
-            typer.echo("Error: Project name cannot be empty or whitespace.", err=True)
-            raise typer.Abort()
 
-    db_name = db_name_opt
-    if db_name is None:
-        db_name = typer.prompt("Database file name (e.g., my_data.db)", default="")
-        if not db_name or not db_name.strip():
-            typer.echo("Error: Database file name cannot be empty or whitespace.", err=True)
-            raise typer.Abort()
-
-    try:
-        config = load_config()
-        
-        if "project" not in config:
-            config["project"] = {}
-        if "database" not in config:
-            config["database"] = {}
-
-        config["project"]["name"] = project_name
-        config["database"]["name"] = db_name
-
-        save_config(config)
-        typer.echo(f"Project '{project_name}' initialized. Configuration saved to config.toml.")
-    except Exception as e:
-        typer.echo(f"Error initializing project: {e}", err=True)
-        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
