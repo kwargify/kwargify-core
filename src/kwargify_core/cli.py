@@ -260,8 +260,87 @@ def validate_workflow(
         typer.echo(typer.style("\n✓ Workflow validation successful!", fg=typer.colors.GREEN, bold=True))
         typer.echo(f"- Name: {workflow.name}")
         typer.echo(f"- Blocks: {len(workflow.blocks)}")
-        block_names = [block.name for block in workflow.topological_sort()]
-        typer.echo(f"- Execution order: {' -> '.join(block_names)}")
+
+        # Generate Airflow-like dependency string
+        layers = {}
+        blocks_to_process = set(workflow.blocks)
+        current_layer = 0
+
+        # Build layers based on dependencies
+        while blocks_to_process:
+            layer_blocks = []
+            processed_in_this_layer = set()
+
+            for block in list(blocks_to_process): # Iterate over a copy
+                # Check if all dependencies are in previous layers
+                all_deps_in_prev_layers = True
+                for dep in block.dependencies:
+                    found_in_prev = False
+                    for i in range(current_layer):
+                        if dep in layers.get(i, []):
+                            found_in_prev = True
+                            break
+                    if not found_in_prev:
+                        all_deps_in_prev_layers = False
+                        break
+
+                if all_deps_in_prev_layers:
+                     # Check if it's a start node or has at least one dep in the previous layer (for layers > 0)
+                    if current_layer == 0:
+                        if not block.dependencies: # Must have no dependencies to be in layer 0
+                           layer_blocks.append(block)
+                           processed_in_this_layer.add(block)
+                        elif not block.dependencies and not any(b in blocks_to_process for b in block.dependencies):
+                            # This case handles blocks that might be isolated or have deps already processed
+                            # but weren't added to a layer yet. Should be rare in a well-defined DAG.
+                            layer_blocks.append(block)
+                            processed_in_this_layer.add(block)
+                    else: # current_layer > 0
+                        at_least_one_dep_in_prev_layer = False
+                        for dep in block.dependencies:
+                            if dep in layers.get(current_layer - 1, []):
+                                at_least_one_dep_in_prev_layer = True
+                                break
+                        if at_least_one_dep_in_prev_layer:
+                            layer_blocks.append(block)
+                            processed_in_this_layer.add(block)
+                        elif not block.dependencies and not any(b in blocks_to_process for b in block.dependencies):
+                            # Handle isolated blocks or those whose deps were all in much earlier layers
+                            layer_blocks.append(block)
+                            processed_in_this_layer.add(block)
+
+
+            if not layer_blocks and blocks_to_process:
+                 # If no blocks were added to the current layer but blocks_to_process is not empty,
+                 # it might indicate a cycle or an issue with dependency definition.
+                 # For this task, we assume a valid DAG.
+                 # Break to avoid infinite loop in case of unexpected graph structures.
+                 break
+
+            # Sort blocks within the layer alphabetically for consistent output
+            layer_blocks.sort(key=lambda b: b.name)
+            layers[current_layer] = layer_blocks
+            blocks_to_process -= processed_in_this_layer
+            current_layer += 1
+
+        # Format the layers into the string
+        dependency_string_parts = []
+        for i in range(current_layer):
+            if i in layers and layers[i]:
+                block_names_in_layer = [block.name for block in layers[i]]
+                if len(block_names_in_layer) > 1:
+                    dependency_string_parts.append(f"[{', '.join(block_names_in_layer)}]")
+                else:
+                    dependency_string_parts.append(block_names_in_layer[0])
+
+        dependency_string = " >> ".join(dependency_string_parts)
+        typer.echo(f"- Dependency Flow: {dependency_string}")
+
+
+        typer.echo("\nExecution Order Diagram (Mermaid):")
+        typer.echo("```mermaid")
+        typer.echo(workflow.to_mermaid())
+        typer.echo("```")
 
     except WorkflowLoadError as e:
         typer.echo(f"Error loading workflow: {e}", err=True)
